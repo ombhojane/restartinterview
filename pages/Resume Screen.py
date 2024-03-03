@@ -1,17 +1,12 @@
 # langchain: https://python.langchain.com/
 from dataclasses import dataclass
 import streamlit as st
-from speech_recognition.openai_whisper import save_wav_file, transcribe
-from audio_recorder_streamlit import audio_recorder
 from langchain.callbacks import get_openai_callback
-from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import RetrievalQA, ConversationChain
 from langchain.prompts.prompt import PromptTemplate
 from prompts.prompts import templates
 from typing import Literal
-from aws.synthesize_speech import synthesize_speech
-from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.text_splitter import NLTKTextSplitter
 from PyPDF2 import PdfReader
@@ -20,25 +15,23 @@ from streamlit_lottie import st_lottie
 import json
 from IPython.display import Audio
 import nltk
+from langchain_google_genai import ChatGoogleGenerativeAI
+import getpass
+import os
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 
-def load_lottiefile(filepath: str):
-    with open(filepath, "r") as f:
-        return json.load(f)
-st_lottie(load_lottiefile("images/welcome.json"), speed=1, reverse=False, loop=True, quality="high", height=300)
+if "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = "AIzaSyCA4__JMC_ZIQ9xQegIj5LOMLhSSrn3pMw"
 
-#st.markdown("""solutions to potential errors:""")
-with st.expander("""Why did I encounter errors when I tried to talk to the AI Interviewer?"""):
-    st.write("""This is because the app failed to record. Make sure that your microphone is connected and that you have given permission to the browser to access your microphone.""")
-with st.expander("""Why did I encounter errors when I tried to upload my resume?"""):
-    st.write("""
-    Please make sure your resume is in pdf format. More formats will be supported in the future.
-    """)
 
-st.markdown("""\n""")
-position = st.selectbox("Select the position you are applying for", ["Data Analyst", "Software Engineer", "Marketing"])
+
+st.title("Resume Screen")
+
+st.session_state.history = []
+
+position = st.text_input("Select the position you are applying for :")
 resume = st.file_uploader("Upload your resume", type=["pdf"])
-auto_play = st.checkbox("Let AI interviewer speak! (Please don't switch during the interview)")
 
 #st.toast("4097 tokens is roughly equivalent to around 800 to 1000 words or 3 minutes of speech. Please keep your answer within this limit.")
 
@@ -58,8 +51,7 @@ def save_vector(resume):
     # Split the document into chunks
     text_splitter = NLTKTextSplitter()
     texts = text_splitter.split_text(text)
-
-    embeddings = OpenAIEmbeddings()
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     docsearch = FAISS.from_texts(texts, embeddings)
     return docsearch
 
@@ -85,9 +77,8 @@ def initialize_session_state_resume():
         st.session_state.resume_memory = ConversationBufferMemory(human_prefix = "Candidate: ", ai_prefix = "Interviewer")
     # guideline for resume screen
     if "resume_guideline" not in st.session_state:
-        llm = ChatOpenAI(
-        model_name = "gpt-3.5-turbo",
-        temperature = 0.5,)
+        llm = ChatGoogleGenerativeAI(
+        model="gemini-pro")
 
         st.session_state.resume_guideline = RetrievalQA.from_chain_type(
             llm=llm,
@@ -95,9 +86,8 @@ def initialize_session_state_resume():
             retriever=st.session_state.retriever, memory = st.session_state.resume_memory).run("Create an interview guideline and prepare only two questions for each topic. Make sure the questions tests the knowledge")
     # llm chain for resume screen
     if "resume_screen" not in st.session_state:
-        llm = ChatOpenAI(
-            model_name="gpt-3.5-turbo",
-            temperature=0.7, )
+        llm = ChatGoogleGenerativeAI(
+        model="gemini-pro")
 
         PROMPT = PromptTemplate(
             input_variables=["history", "input"],
@@ -123,9 +113,8 @@ def initialize_session_state_resume():
         st.session_state.resume_screen =  ConversationChain(prompt=PROMPT, llm = llm, memory = st.session_state.resume_memory)
     # llm chain for generating feedback
     if "resume_feedback" not in st.session_state:
-        llm = ChatOpenAI(
-            model_name="gpt-3.5-turbo",
-            temperature=0.5,)
+        llm = ChatGoogleGenerativeAI(
+        model="gemini-pro")
         st.session_state.resume_feedback = ConversationChain(
             prompt=PromptTemplate(input_variables=["history","input"], template=templates.feedback_template),
             llm=llm,
@@ -133,33 +122,21 @@ def initialize_session_state_resume():
         )
 
 def answer_call_back():
-    with get_openai_callback() as cb:
-        human_answer = st.session_state.answer
-        if voice:
-            save_wav_file("temp/audio.wav", human_answer)
-            try:
-                input = transcribe("temp/audio.wav")
-                # save human_answer to history
-            except:
-                st.session_state.resume_history.append(Message("ai", "Sorry, I didn't get that."))
-                return "Please try again."
-        else:
-            input = human_answer
-        st.session_state.resume_history.append(
-            Message("human", input)
-        )
-        # OpenAI answer and save to history
-        llm_answer = st.session_state.resume_screen.run(input)
-        # speech synthesis and speak out
-        audio_file_path = synthesize_speech(llm_answer)
-        # create audio widget with autoplay
-        audio_widget = Audio(audio_file_path, autoplay=True)
-        # save audio data to history
-        st.session_state.resume_history.append(
-            Message("ai", llm_answer)
-        )
-        st.session_state.token_count += cb.total_tokens
-        return audio_widget
+
+    '''callback function for answering user input'''
+
+    # user input
+    human_answer = st.session_state.answer
+    st.session_state.history.append(
+        Message("human", human_answer)
+    )
+    # OpenAI answer and save to history
+    llm_answer = st.session_state.conversation.run(human_answer)
+    st.session_state.history.append(
+        Message("ai", llm_answer)
+    )
+    st.session_state.token_count += len(llm_answer.split())
+    return llm_answer
 
 if position and resume:
     # intialize session state
@@ -185,8 +162,7 @@ if position and resume:
         with answer_placeholder:
             voice: bool = st.checkbox("I would like to speak with AI Interviewer!")
             if voice:
-                answer = audio_recorder(pause_threshold=2, sample_rate=44100)
-                #st.warning("An UnboundLocalError will occur if the microphone fails to record.")
+                print("voice")                #st.warning("An UnboundLocalError will occur if the microphone fails to record.")
             else:
                 answer = st.chat_input("Your answer")
             if answer:
@@ -196,7 +172,7 @@ if position and resume:
         with chat_placeholder:
             for answer in st.session_state.resume_history:
                 if answer.origin == 'ai':
-                    if auto_play and audio:
+                    if audio:
                         with st.chat_message("assistant"):
                             st.write(answer.message)
                             st.write(audio)
