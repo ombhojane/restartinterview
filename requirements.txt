@@ -12,3 +12,4 @@ streamlit-lottie
 faiss-cpu
 boto3
 Ipython
+langchain-google-genai
