@@ -31,7 +31,9 @@ def load_lottiefile(filepath: str):
 
 st.title("Behavioral Screen")
 st.markdown("""\n""")
-jd = st.text_area("""Please enter the job description here (If you don't have one, enter keywords, such as "communication" or "teamwork" instead): """)
+
+with open('job_description.json', 'r') as f:
+    jd = json.load(f)
 
 @dataclass
 class Message:
@@ -194,7 +196,7 @@ if jd:
                         st.write(answer.message)
 
         credit_card_placeholder.caption(f"""
-                        Progress: {int(len(st.session_state.history) / 30 * 100)}% completed.
+                        Progress: {int(len(st.session_state.history) * 10)}% completed.
         """)
 
 else:

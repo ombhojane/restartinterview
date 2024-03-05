@@ -24,8 +24,9 @@ if "GOOGLE_API_KEY" not in os.environ:
 
 
 st.title("Professional Screen")
-jd = st.text_area("Please enter the job description here (If you don't have one, enter keywords, such as PostgreSQL or Python instead): ")
 
+with open('job_description.json', 'r') as f:
+    jd = json.load(f)
 
 @dataclass
 class Message:
@@ -174,6 +175,6 @@ if jd:
                         st.write(answer.message)
 
         credit_card_placeholder.caption(f"""
-        Progress: {int(len(st.session_state.jd_history) / 30 * 100)}% completed.""")
+        Progress: {int(len(st.session_state.jd_history) * 10)}% completed.""")
 else:
     st.info("Please submit a job description to start the interview.")
